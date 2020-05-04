@@ -1,76 +1,47 @@
 #!/usr/bin/env node
 
+const CLI = require("clui");
+const Spinner = CLI.Spinner;
 const chalk = require("chalk");
 const clear = require("clear");
 const figlet = require("figlet");
+const { printTable } = require("console-table-printer");
 
-const files = require("./lib/files");
+const inquirer = require("./lib/inquirer");
 const github = require("./lib/github");
-const repo = require("./lib/repo");
+const git = require("./lib/repo");
 
 clear();
 
 console.log(
-  chalk.yellow(figlet.textSync("Ginit", { horizontalLayout: "full" }))
+  chalk.yellow(figlet.textSync("Git Cloner", { horizontalLayout: "full" }))
 );
 
-if (files.directoryExists(".git")) {
-  console.log(chalk.red("Already a Git repository!"));
-  process.exit();
-}
-
-const getGithubToken = async () => {
-  // Fetch token from config store
-  let token = github.getStoredGithubToken();
-  if (token) {
-    return token;
-  }
-
-  // No token found, use credentials to access GitHub account
-  token = await github.getPersonalAccesToken();
-
-  return token;
-};
-
-const run = async () => {
+const main = async () => {
   try {
-    // Retrieve & Set Authentication Token
-    const token = await getGithubToken();
-    console.log(token);
-    github.githubAuth(token);
+    // ASK USER FOR GITHUB USERNAME
+    const { username } = await inquirer.askUsername();
+    // CALL TO GET USER REPOS
+    const repos = await github.getPublicRepos(username);
+    const filteredRepos = repos.data.map((e, i) => {
+      const { name, clone_url } = e;
+      return { index: i, name, clone_url };
+    });
+    // SHOW REPOS IN A TABLE
+    printTable(filteredRepos);
 
-    // Create remote repository
-    const url = await repo.createRemoteRepo();
-    console.log(url);
-    // Create .gitignore file
-    await repo.createGitignore();
+    //ASK USER TO TYPE THE REPO THEY WANT TO CLONE
+    const { repo } = await inquirer.chooseRepo(
+      filteredRepos.map((e) => e.name)
+    );
 
-    // Set up local repository and push to remote
-    await repo.setupRepo(url);
+    // CLONE REPO
+    await git.clone(filteredRepos.filter((e) => e.name === repo)[0].clone_url);
 
-    console.log(chalk.green("All done!"));
+    //SHOW MESSAGE WHEN DONE
+    console.log(chalk.green("Cloning repo..."));
   } catch (err) {
-    if (err) {
-      switch (err.status) {
-        case 401:
-          console.log(
-            chalk.red(
-              "Couldn't log you in. Please provide correct credentials/token."
-            )
-          );
-          break;
-        case 422:
-          console.log(
-            chalk.red(
-              "There is already a remote repository or token with the same name"
-            )
-          );
-          break;
-        default:
-          console.log(chalk.red(err));
-      }
-    }
+    console.log(err);
   }
 };
-
-run();
+main();
